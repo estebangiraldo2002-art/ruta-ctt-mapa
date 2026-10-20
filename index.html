@@ -26,6 +26,11 @@ h1{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;line-hei
 button{font:inherit;font-weight:600;font-size:15px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;min-height:40px;cursor:pointer}
 button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 #map{flex:1;min-height:0}
+.volver{font-weight:600;font-size:15px;color:var(--ink);text-decoration:none;border:1.5px solid var(--ink);border-radius:8px;padding:8px 12px;min-height:40px;display:inline-flex;align-items:center}
+.pin.hecho{background:#8A8F94!important;opacity:.75}
+.pin.conaus{box-shadow:0 0 0 4px #B4472A,0 1px 4px rgba(0,0,0,.45)}
+.pp .st-ok{color:#2B7A4B;font-weight:700} .pp .st-bad{color:#B4472A;font-weight:700}
+.pp li.ok span:not(.n){text-decoration:line-through;opacity:.6}
 .pin{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font-family:var(--f-display);font-weight:700;font-size:18px;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
 .pin.salida{background:#1B1D20;font-size:13px}
 .t-cd{background:var(--cd)} .t-parking{background:var(--park)} .t-doble,.t-contenedor{background:var(--breve)} .t-calle{background:var(--calle)}
@@ -43,6 +48,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
 </head>
 <body>
 <header>
+  <a id="volver" class="volver" href="https://claude.ai/artifact/PfAQqv1CeCLZDJhMsiUcYD">← Hoja de ruta</a>
   <h1 id="titulo">Mapa de ruta</h1>
   <span id="estado">Cargando…</span>
   <button type="button" id="btn-yo">Dónde estoy</button>
@@ -68,6 +74,13 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
   }
   var R=null; try{ R=leerRuta(); }catch(e){ R=null; }
 
+  var HOJA="https://claude.ai/artifact/PfAQqv1CeCLZDJhMsiUcYD";
+  document.getElementById("volver").addEventListener("click",function(e){
+    e.preventDefault();
+    try{ window.close(); }catch(_){}
+    setTimeout(function(){ location.href=HOJA; },250);
+  });
+
   var map=L.map("map",{zoomControl:true}).setView(MADRID,13);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap"}).addTo(map);
 
@@ -75,7 +88,8 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
     estadoEl.textContent="Abre este mapa desde el botón «Ver mapa» de tu hoja de ruta.";
     return;
   }
-  if(R.f){ var d=new Date(R.f+"T12:00:00"); if(!isNaN(d)) document.getElementById("titulo").textContent="Ruta · "+d.toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"}); }
+  var reint=R.m==="r";
+  if(R.f){ var d=new Date(R.f+"T12:00:00"); if(!isNaN(d)) document.getElementById("titulo").textContent=(reint?"Ausentes · ":"Ruta · ")+d.toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"}); }
 
   // Caché de coordenadas en este navegador
   var CK="rutactt:geo";
@@ -105,12 +119,14 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
 
   function popup(p,i){
     var w=el("div","pp");
-    w.appendChild(el("h2",null,"Parada "+(i+1)+" · "+(TIPOS[p.t]||TIPOS.calle)));
+    w.appendChild(el("h2",null,"Parada "+(p.n||i+1)+" · "+(TIPOS[p.t]||TIPOS.calle)));
     w.appendChild(el("div","donde",p.d||p.v));
     var ul=el("ul");
     (p.q||[]).forEach(function(q){
-      var li=el("li"); li.appendChild(el("span","n",q[0]!=null&&q[0]!==""?String(q[0]):"–"));
-      var s=el("span",null,q[1]); if(q[2]) s.appendChild(el("span","fr",q[2])); li.appendChild(s); ul.appendChild(li);
+      var li=el("li",q[3]||""); li.appendChild(el("span","n",q[0]!=null&&q[0]!==""?String(q[0]):"–"));
+      var s=el("span",null,q[1]); if(q[2]) s.appendChild(el("span","fr",q[2])); li.appendChild(s);
+      if(q[3]==="ok") li.appendChild(el("span","st-ok","✓")); else if(q[3]==="bad") li.appendChild(el("span","st-bad","✕ ausente"));
+      ul.appendChild(li);
     });
     w.appendChild(ul);
     var a=el("a","nav","Navegar aquí ↗"); a.href=navUrl(p.v); a.target="_blank"; a.rel="noopener"; w.appendChild(a);
@@ -129,14 +145,17 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
     for(var i=0;i<R.p.length;i++){
       var p=R.p[i], ll=await geocodificar(p.v); hechas++; prog();
       if(ll){
-        L.marker(ll,{icon:icono("t-"+(p.t||"calle"),String(i+1)),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
+        var qs=p.q||[], todo=qs.length&&qs.every(function(q){return q[3]==="ok";}), alguno=qs.some(function(q){return q[3]==="bad";});
+        var cls="t-"+(p.t||"calle")+(todo&&!reint?" hecho":"")+(alguno&&!reint?" conaus":"");
+        L.marker(ll,{icon:icono(cls,todo&&!reint?"✓":String(p.n||i+1)),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
         puntos.push(ll);
-      } else faltan.push("Parada "+(i+1)+": "+p.v);
+      } else faltan.push("Parada "+(p.n||i+1)+": "+p.v);
     }
     if(capa.getLayers().length) map.fitBounds(capa.getBounds(),{padding:[30,30]});
     var cadena=(llS?[llS]:[]).concat(puntos);
     var n=(R.p.length-faltan.length);
-    estadoEl.textContent=n+" paradas · "+R.p.reduce(function(a,p){return a+(p.q||[]).length;},0)+" paquetes";
+    var tot=0,pend=0; R.p.forEach(function(p){ (p.q||[]).forEach(function(q){ tot++; if(!q[3]) pend++; }); });
+    estadoEl.textContent=reint? (tot+" ausentes en "+n+" paradas") : (n+" paradas · "+pend+" de "+tot+" paquetes pendientes");
     if(faltan.length){ avisoEl.hidden=false; avisoEl.textContent="No encontré en el mapa: "+faltan.join(" · ")+". Navega a esas paradas desde la hoja de ruta."; }
     await dibujarRuta(cadena);
   }
