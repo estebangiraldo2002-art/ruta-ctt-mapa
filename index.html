@@ -29,6 +29,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
 .volver{font-weight:600;font-size:15px;color:var(--ink);text-decoration:none;border:1.5px solid var(--ink);border-radius:8px;padding:8px 12px;min-height:40px;display:inline-flex;align-items:center}
 .pin.hecho{background:#8A8F94!important;opacity:.75}
 .pin.conaus{box-shadow:0 0 0 4px #B4472A,0 1px 4px rgba(0,0,0,.45)}
+.pp .lado{font-size:13px;font-weight:600;margin-bottom:6px} .pp .lado.ok{color:#2B7A4B} .pp .lado.dud{color:#8A6100}
 .pp .st-ok{color:#2B7A4B;font-weight:700} .pp .st-bad{color:#B4472A;font-weight:700}
 .pp li.ok span:not(.n){text-decoration:line-through;opacity:.6}
 .pin{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font-family:var(--f-display);font-weight:700;font-size:18px;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
@@ -92,7 +93,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
   if(R.f){ var d=new Date(R.f+"T12:00:00"); if(!isNaN(d)) document.getElementById("titulo").textContent=(reint?"Ausentes · ":"Ruta · ")+d.toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"}); }
 
   // Caché de coordenadas en este navegador
-  var CK="rutactt:geo";
+  var CK="rutactt:geo2"; // {k: {ll:[lat,lon], ex:true|false}}
   var cache={}; try{ cache=JSON.parse(localStorage.getItem(CK)||"{}")||{}; }catch(e){}
   function guardarCache(){ try{ localStorage.setItem(CK,JSON.stringify(cache)); }catch(e){} }
   function esperar(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
@@ -102,13 +103,19 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
   async function geocodificar(dir){
     var k=dir.toLowerCase().trim();
     if(cache[k]) return cache[k];
+    var conNumero=/\d/.test(dir.split(",")[0]);
     var espera=1100-(Date.now()-ultima); if(espera>0) await esperar(espera);
     ultima=Date.now();
     var url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=es&viewbox=-3.95,40.65,-3.5,40.25&bounded=1&q="+encodeURIComponent(dir);
     try{
       var res=await fetch(url,{headers:{"Accept-Language":"es"}});
       var js=await res.json();
-      if(js && js[0]){ var ll=[+js[0].lat,+js[0].lon]; cache[k]=ll; guardarCache(); return ll; }
+      if(js && js[0]){
+        var r=js[0];
+        // exacto = encontró el portal concreto, así se sabe de qué lado de la calle está
+        var ex=conNumero && (r.type==="house" || r.addresstype==="building" || r.addresstype==="house" || r.category==="building");
+        var g={ll:[+r.lat,+r.lon], ex:!!ex}; cache[k]=g; guardarCache(); return g;
+      }
     }catch(e){}
     return null;
   }
@@ -118,10 +125,11 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
   function icono(cls,txt){ return L.divIcon({className:"",html:'<div class="pin '+cls+'">'+txt+'</div>',iconSize:[34,34],iconAnchor:[17,17],popupAnchor:[0,-16]}); }
   function navUrl(dest){ return "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination="+encodeURIComponent(dest); }
 
-  function popup(p,i){
+  function popup(p,i,ex){
     var w=el("div","pp");
     w.appendChild(el("h2",null,"Parada "+(p.n||letra(i))+" · "+(TIPOS[p.t]||TIPOS.calle)));
     w.appendChild(el("div","donde",p.d||p.v));
+    w.appendChild(el("div",ex?"lado ok":"lado dud",ex?"Llegas con el portal a tu derecha":"Lado sin confirmar: no encontré el portal exacto"));
     var ul=el("ul");
     (p.q||[]).forEach(function(q){
       var li=el("li",q[3]||""); li.appendChild(el("span","n",q[0]!=null&&q[0]!==""?String(q[0]):"–"));
@@ -134,43 +142,46 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
     return w;
   }
 
-  var puntos=[], capa=L.featureGroup().addTo(map), faltan=[];
+  var puntos=[], capa=L.featureGroup().addTo(map), faltan=[], exactas=0;
 
   async function cargar(){
     var total=R.p.length+(R.s?1:0), hechas=0;
     function prog(){ estadoEl.textContent="Ubicando paradas… "+hechas+" de "+total; }
     prog();
-    var llS=null;
-    if(R.s){ llS=await geocodificar(R.s); hechas++; prog();
+    var llS=null, gS=null, appr=[];
+    if(R.s){ gS=await geocodificar(R.s); llS=gS&&gS.ll; hechas++; prog();
       if(llS) L.marker(llS,{icon:icono("salida","SAL")}).addTo(capa).bindPopup("Salida: "+R.s); }
     for(var i=0;i<R.p.length;i++){
-      var p=R.p[i], ll=await geocodificar(p.v); hechas++; prog();
+      var p=R.p[i], g=await geocodificar(p.v), ll=g&&g.ll; hechas++; prog();
       if(ll){
         var qs=p.q||[], todo=qs.length&&qs.every(function(q){return q[3]==="ok";}), alguno=qs.some(function(q){return q[3]==="bad";});
         var cls="t-"+(p.t||"calle")+(todo&&!reint?" hecho":"")+(alguno&&!reint?" conaus":"");
-        L.marker(ll,{icon:icono(cls,todo&&!reint?"✓":String(p.n||letra(i))),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
-        puntos.push(ll);
+        L.marker(ll,{icon:icono(cls,todo&&!reint?"✓":String(p.n||letra(i))),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i,g.ex));
+        puntos.push(ll); appr.push(g.ex?"curb":"unrestricted"); if(g.ex) exactas++;
       } else faltan.push("Parada "+(p.n||letra(i))+": "+p.v);
     }
     if(capa.getLayers().length) map.fitBounds(capa.getBounds(),{padding:[30,30]});
     var cadena=(llS?[llS]:[]).concat(puntos);
+    var aprox=(llS?["unrestricted"]:[]).concat(appr);
     var n=(R.p.length-faltan.length);
     var tot=0,pend=0; R.p.forEach(function(p){ (p.q||[]).forEach(function(q){ tot++; if(!q[3]) pend++; }); });
-    estadoEl.textContent=reint? (tot+" ausentes en "+n+" paradas") : (n+" paradas · "+pend+" de "+tot+" paquetes pendientes");
+    estadoEl.textContent=(reint? (tot+" ausentes en "+n+" paradas") : (n+" paradas · "+pend+" de "+tot+" pendientes"))+" · lado confirmado en "+exactas+" de "+n;
     if(faltan.length){ avisoEl.hidden=false; avisoEl.textContent="No encontré en el mapa: "+faltan.join(" · ")+". Navega a esas paradas desde la hoja de ruta."; }
-    await dibujarRuta(cadena);
+    await dibujarRuta(cadena, aprox);
   }
 
-  // Ruta por calles con OSRM; si falla, línea recta entre paradas
-  async function dibujarRuta(ll){
+  // Ruta por calles con OSRM. "curb" obliga a llegar con el portal a la derecha (se circula por la derecha).
+  // Si falla, no se dibuja nada: nunca líneas rectas.
+  async function dibujarRuta(ll, aprox){
     if(ll.length<2) return;
     var color=getComputedStyle(document.documentElement).getPropertyValue("--route").trim()||"#1B1D20";
-    var tramos=[], i=0; while(i<ll.length-1){ tramos.push(ll.slice(i,i+25)); i+=24; }
+    var tramos=[], tap=[], i=0; while(i<ll.length-1){ tramos.push(ll.slice(i,i+25)); tap.push(aprox.slice(i,i+25)); i+=24; }
     var ok=true, lineas=[];
     for(var t=0;t<tramos.length;t++){
       try{
         var coords=tramos[t].map(function(p){return p[1]+","+p[0];}).join(";");
-        var res=await fetch("https://router.project-osrm.org/route/v1/driving/"+coords+"?overview=full&geometries=geojson");
+        var ap=tap[t].slice(); ap[0]="unrestricted";
+        var res=await fetch("https://router.project-osrm.org/route/v1/driving/"+coords+"?overview=full&geometries=geojson&approaches="+ap.join(";"));
         var js=await res.json();
         if(!js.routes||!js.routes[0]) throw 0;
         lineas.push(js.routes[0].geometry.coordinates.map(function(c){return [c[1],c[0]];}));
