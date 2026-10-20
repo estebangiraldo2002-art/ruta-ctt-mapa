@@ -113,13 +113,14 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
     return null;
   }
 
+  function letra(i){ var s=""; i=i+1; while(i>0){ var r=(i-1)%26; s=String.fromCharCode(65+r)+s; i=Math.floor((i-1)/26); } return s; }
   function el(t,c,x){ var n=document.createElement(t); if(c) n.className=c; if(x!=null) n.textContent=x; return n; }
   function icono(cls,txt){ return L.divIcon({className:"",html:'<div class="pin '+cls+'">'+txt+'</div>',iconSize:[34,34],iconAnchor:[17,17],popupAnchor:[0,-16]}); }
   function navUrl(dest){ return "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination="+encodeURIComponent(dest); }
 
   function popup(p,i){
     var w=el("div","pp");
-    w.appendChild(el("h2",null,"Parada "+(p.n||i+1)+" · "+(TIPOS[p.t]||TIPOS.calle)));
+    w.appendChild(el("h2",null,"Parada "+(p.n||letra(i))+" · "+(TIPOS[p.t]||TIPOS.calle)));
     w.appendChild(el("div","donde",p.d||p.v));
     var ul=el("ul");
     (p.q||[]).forEach(function(q){
@@ -147,9 +148,9 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
       if(ll){
         var qs=p.q||[], todo=qs.length&&qs.every(function(q){return q[3]==="ok";}), alguno=qs.some(function(q){return q[3]==="bad";});
         var cls="t-"+(p.t||"calle")+(todo&&!reint?" hecho":"")+(alguno&&!reint?" conaus":"");
-        L.marker(ll,{icon:icono(cls,todo&&!reint?"✓":String(p.n||i+1)),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
+        L.marker(ll,{icon:icono(cls,todo&&!reint?"✓":String(p.n||letra(i))),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
         puntos.push(ll);
-      } else faltan.push("Parada "+(p.n||i+1)+": "+p.v);
+      } else faltan.push("Parada "+(p.n||letra(i))+": "+p.v);
     }
     if(capa.getLayers().length) map.fitBounds(capa.getBounds(),{padding:[30,30]});
     var cadena=(llS?[llS]:[]).concat(puntos);
