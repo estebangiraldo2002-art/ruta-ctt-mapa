@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Mapa de ruta</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F4F3EF; --surface:#FFFFFF; --ink:#1B1D20; --muted:#5C6166; --line:#DCD9D1; --accent:#E9A518;
+  --cd:#1E5BA8; --park:#2B7A4B; --breve:#B4472A; --calle:#6B5BA8; --route:#1B1D20;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#141618; --surface:#1E2124; --ink:#ECEAE4; --muted:#A2A6AB; --line:#32363B; --accent:#F2B633;
+  --cd:#6A9FE6; --park:#56B67F; --breve:#E58466; --calle:#A597E6; --route:#F2B633; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body)}
+body{display:flex;flex-direction:column}
+header{padding:calc(10px + env(safe-area-inset-top,0px)) max(14px,env(safe-area-inset-right,0px)) 10px max(14px,env(safe-area-inset-left,0px));display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line);background:var(--bg);z-index:2}
+h1{font-family:var(--f-display);font-weight:700;font-size:24px;margin:0;line-height:1}
+#estado{font-size:14px;color:var(--muted);flex:1;min-width:140px}
+button{font:inherit;font-weight:600;font-size:15px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 12px;min-height:40px;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+#map{flex:1;min-height:0}
+.pin{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font-family:var(--f-display);font-weight:700;font-size:18px;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)}
+.pin.salida{background:#1B1D20;font-size:13px}
+.t-cd{background:var(--cd)} .t-parking{background:var(--park)} .t-doble,.t-contenedor{background:var(--breve)} .t-calle{background:var(--calle)}
+.yo{width:18px;height:18px;border-radius:50%;background:#2F7DF6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(47,125,246,.25)}
+.leaflet-popup-content{font-family:var(--f-body);font-size:15px;margin:12px 14px;min-width:220px}
+.pp h2{font-family:var(--f-display);font-size:20px;margin:0 0 4px}
+.pp .donde{font-weight:600;margin-bottom:6px}
+.pp ul{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:4px}
+.pp li{display:flex;gap:8px;align-items:baseline}
+.pp .n{font-family:var(--f-display);font-weight:700;font-size:18px;min-width:34px;border:1.5px solid currentColor;border-radius:6px;text-align:center}
+.pp .fr{background:var(--accent);color:#1B1D20;font-weight:600;padding:0 5px;border-radius:4px;font-size:13px;margin-left:4px}
+.pp a.nav{display:inline-block;font-weight:600;color:#1B1D20;background:var(--accent);text-decoration:none;padding:7px 12px;border-radius:8px}
+.aviso{position:absolute;inset:auto 12px calc(12px + env(safe-area-inset-bottom,0px)) 12px;z-index:500;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;max-height:30vh;overflow:auto}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titulo">Mapa de ruta</h1>
+  <span id="estado">Cargando…</span>
+  <button type="button" id="btn-yo">Dónde estoy</button>
+  <button type="button" id="btn-todo">Ver toda la ruta</button>
+</header>
+<div id="map"></div>
+<div class="aviso" id="aviso" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+  var TIPOS={cd:"Carga y descarga",parking:"Parking rápido",doble:"Parada breve",contenedor:"Contenedores",calle:"Aparcar en calle"};
+  var MADRID=[40.4168,-3.7038];
+  var estadoEl=document.getElementById("estado"), avisoEl=document.getElementById("aviso");
+
+  function leerRuta(){
+    var m=location.hash.match(/r=([A-Za-z0-9_-]+)/);
+    if(!m) return null;
+    var b=m[1].replace(/-/g,"+").replace(/_/g,"/"); while(b.length%4) b+="=";
+    var bin=atob(b), bytes=new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+  var R=null; try{ R=leerRuta(); }catch(e){ R=null; }
+
+  var map=L.map("map",{zoomControl:true}).setView(MADRID,13);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"&copy; OpenStreetMap"}).addTo(map);
+
+  if(!R || !R.p || !R.p.length){
+    estadoEl.textContent="Abre este mapa desde el botón «Ver mapa» de tu hoja de ruta.";
+    return;
+  }
+  if(R.f){ var d=new Date(R.f+"T12:00:00"); if(!isNaN(d)) document.getElementById("titulo").textContent="Ruta · "+d.toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"}); }
+
+  // Caché de coordenadas en este navegador
+  var CK="rutactt:geo";
+  var cache={}; try{ cache=JSON.parse(localStorage.getItem(CK)||"{}")||{}; }catch(e){}
+  function guardarCache(){ try{ localStorage.setItem(CK,JSON.stringify(cache)); }catch(e){} }
+  function esperar(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
+
+  // Nominatim: máximo 1 petición por segundo, limitado a Madrid
+  var ultima=0;
+  async function geocodificar(dir){
+    var k=dir.toLowerCase().trim();
+    if(cache[k]) return cache[k];
+    var espera=1100-(Date.now()-ultima); if(espera>0) await esperar(espera);
+    ultima=Date.now();
+    var url="https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=es&viewbox=-3.95,40.65,-3.5,40.25&bounded=1&q="+encodeURIComponent(dir);
+    try{
+      var res=await fetch(url,{headers:{"Accept-Language":"es"}});
+      var js=await res.json();
+      if(js && js[0]){ var ll=[+js[0].lat,+js[0].lon]; cache[k]=ll; guardarCache(); return ll; }
+    }catch(e){}
+    return null;
+  }
+
+  function el(t,c,x){ var n=document.createElement(t); if(c) n.className=c; if(x!=null) n.textContent=x; return n; }
+  function icono(cls,txt){ return L.divIcon({className:"",html:'<div class="pin '+cls+'">'+txt+'</div>',iconSize:[34,34],iconAnchor:[17,17],popupAnchor:[0,-16]}); }
+  function navUrl(dest){ return "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate&destination="+encodeURIComponent(dest); }
+
+  function popup(p,i){
+    var w=el("div","pp");
+    w.appendChild(el("h2",null,"Parada "+(i+1)+" · "+(TIPOS[p.t]||TIPOS.calle)));
+    w.appendChild(el("div","donde",p.d||p.v));
+    var ul=el("ul");
+    (p.q||[]).forEach(function(q){
+      var li=el("li"); li.appendChild(el("span","n",q[0]!=null&&q[0]!==""?String(q[0]):"–"));
+      var s=el("span",null,q[1]); if(q[2]) s.appendChild(el("span","fr",q[2])); li.appendChild(s); ul.appendChild(li);
+    });
+    w.appendChild(ul);
+    var a=el("a","nav","Navegar aquí ↗"); a.href=navUrl(p.v); a.target="_blank"; a.rel="noopener"; w.appendChild(a);
+    return w;
+  }
+
+  var puntos=[], capa=L.featureGroup().addTo(map), faltan=[];
+
+  async function cargar(){
+    var total=R.p.length+(R.s?1:0), hechas=0;
+    function prog(){ estadoEl.textContent="Ubicando paradas… "+hechas+" de "+total; }
+    prog();
+    var llS=null;
+    if(R.s){ llS=await geocodificar(R.s); hechas++; prog();
+      if(llS) L.marker(llS,{icon:icono("salida","SAL")}).addTo(capa).bindPopup("Salida: "+R.s); }
+    for(var i=0;i<R.p.length;i++){
+      var p=R.p[i], ll=await geocodificar(p.v); hechas++; prog();
+      if(ll){
+        L.marker(ll,{icon:icono("t-"+(p.t||"calle"),String(i+1)),zIndexOffset:1000-i}).addTo(capa).bindPopup(popup(p,i));
+        puntos.push(ll);
+      } else faltan.push("Parada "+(i+1)+": "+p.v);
+    }
+    if(capa.getLayers().length) map.fitBounds(capa.getBounds(),{padding:[30,30]});
+    var cadena=(llS?[llS]:[]).concat(puntos);
+    var n=(R.p.length-faltan.length);
+    estadoEl.textContent=n+" paradas · "+R.p.reduce(function(a,p){return a+(p.q||[]).length;},0)+" paquetes";
+    if(faltan.length){ avisoEl.hidden=false; avisoEl.textContent="No encontré en el mapa: "+faltan.join(" · ")+". Navega a esas paradas desde la hoja de ruta."; }
+    await dibujarRuta(cadena);
+  }
+
+  // Ruta por calles con OSRM; si falla, línea recta entre paradas
+  async function dibujarRuta(ll){
+    if(ll.length<2) return;
+    var color=getComputedStyle(document.documentElement).getPropertyValue("--route").trim()||"#1B1D20";
+    var tramos=[], i=0; while(i<ll.length-1){ tramos.push(ll.slice(i,i+25)); i+=24; }
+    var ok=true, lineas=[];
+    for(var t=0;t<tramos.length;t++){
+      try{
+        var coords=tramos[t].map(function(p){return p[1]+","+p[0];}).join(";");
+        var res=await fetch("https://router.project-osrm.org/route/v1/driving/"+coords+"?overview=full&geometries=geojson");
+        var js=await res.json();
+        if(!js.routes||!js.routes[0]) throw 0;
+        lineas.push(js.routes[0].geometry.coordinates.map(function(c){return [c[1],c[0]];}));
+      }catch(e){ ok=false; break; }
+    }
+    if(ok) lineas.forEach(function(l){ L.polyline(l,{color:color,weight:5,opacity:.75}).addTo(map); });
+    else L.polyline(ll,{color:color,weight:4,opacity:.6,dashArray:"8 8"}).addTo(map);
+    capa.bringToFront && capa.eachLayer(function(m){ m.setZIndexOffset && m.setZIndexOffset(1000); });
+  }
+
+  document.getElementById("btn-todo").addEventListener("click",function(){ if(capa.getLayers().length) map.fitBounds(capa.getBounds(),{padding:[30,30]}); });
+  var yo=null, siguiendo=false;
+  document.getElementById("btn-yo").addEventListener("click",function(){
+    if(!navigator.geolocation){ estadoEl.textContent="Este navegador no da la ubicación."; return; }
+    if(yo){ map.setView(yo.getLatLng(),17); }
+    if(siguiendo) return; siguiendo=true;
+    navigator.geolocation.watchPosition(function(pos){
+      var ll=[pos.coords.latitude,pos.coords.longitude];
+      if(!yo){ yo=L.marker(ll,{icon:L.divIcon({className:"",html:'<div class="yo"></div>',iconSize:[18,18],iconAnchor:[9,9]}),zIndexOffset:2000}).addTo(map); map.setView(ll,17); }
+      else yo.setLatLng(ll);
+    },function(){ siguiendo=false; estadoEl.textContent="Activa la ubicación del navegador para verte en el mapa."; },{enableHighAccuracy:true,maximumAge:5000});
+  });
+
+  cargar();
+})();
+</script>
+</body>
+</html>
