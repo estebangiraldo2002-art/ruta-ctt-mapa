@@ -177,7 +177,7 @@ button:focus-visible,a:focus-visible{outline:3px solid var(--accent);outline-off
       }catch(e){ ok=false; break; }
     }
     if(ok) lineas.forEach(function(l){ L.polyline(l,{color:color,weight:5,opacity:.75}).addTo(map); });
-    else L.polyline(ll,{color:color,weight:4,opacity:.6,dashArray:"8 8"}).addTo(map);
+    else { avisoEl.hidden=false; avisoEl.textContent=(avisoEl.textContent?avisoEl.textContent+" ":"")+"No pude trazar la ruta por las calles: el mapa solo muestra el orden de las paradas. Para conducir, usa los tramos de Google Maps de la hoja de ruta."; }
     capa.bringToFront && capa.eachLayer(function(m){ m.setZIndexOffset && m.setZIndexOffset(1000); });
   }
 
